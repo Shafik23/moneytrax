@@ -30,11 +30,18 @@ const initialStreams: Stream[] = [
   { id: '7', sourceId: '6', accountId: '1', amount: -300, active: true },
 ];
 
+interface Position {
+  x: number;
+  y: number;
+}
+
 function App() {
   const [sources] = useState<SourceType[]>(initialSources);
   const [accounts] = useState<AccountType[]>(initialAccounts);
   const [streams] = useState<Stream[]>(initialStreams);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [sourcePositions, setSourcePositions] = useState<Record<string, Position>>({});
+  const [accountPositions, setAccountPositions] = useState<Record<string, Position>>({});
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -47,7 +54,45 @@ function App() {
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  const getSourcePosition = (index: number, type: 'income' | 'expense') => {
+  // Initialize positions when dimensions are available
+  useEffect(() => {
+    if (dimensions.width === 0 || dimensions.height === 0) return;
+
+    // Initialize source positions if not set
+    const newSourcePositions: Record<string, Position> = {};
+    const incomeSourcesIndexed = sources.filter(s => s.type === 'income');
+    const expenseSourcesIndexed = sources.filter(s => s.type === 'expense');
+
+    incomeSourcesIndexed.forEach((source, index) => {
+      if (!sourcePositions[source.id]) {
+        newSourcePositions[source.id] = getDefaultSourcePosition(index, 'income');
+      }
+    });
+
+    expenseSourcesIndexed.forEach((source, index) => {
+      if (!sourcePositions[source.id]) {
+        newSourcePositions[source.id] = getDefaultSourcePosition(index, 'expense');
+      }
+    });
+
+    if (Object.keys(newSourcePositions).length > 0) {
+      setSourcePositions(prev => ({ ...prev, ...newSourcePositions }));
+    }
+
+    // Initialize account positions if not set
+    const newAccountPositions: Record<string, Position> = {};
+    accounts.forEach((account, index) => {
+      if (!accountPositions[account.id]) {
+        newAccountPositions[account.id] = getDefaultAccountPosition(index);
+      }
+    });
+
+    if (Object.keys(newAccountPositions).length > 0) {
+      setAccountPositions(prev => ({ ...prev, ...newAccountPositions }));
+    }
+  }, [dimensions, sources, accounts]);
+
+  const getDefaultSourcePosition = (index: number, type: 'income' | 'expense') => {
     const isIncome = type === 'income';
     const count = sources.filter(s => s.type === type).length;
     const spacing = 150;
@@ -59,7 +104,7 @@ function App() {
     return { x, y };
   };
 
-  const getAccountPosition = (index: number) => {
+  const getDefaultAccountPosition = (index: number) => {
     const count = accounts.length;
     const spacing = 200;
     const totalWidth = (count - 1) * spacing;
@@ -69,8 +114,13 @@ function App() {
     return { x, y };
   };
 
-  const incomeSourcesIndexed = sources.filter(s => s.type === 'income');
-  const expenseSourcesIndexed = sources.filter(s => s.type === 'expense');
+  const updateSourcePosition = (id: string, position: Position) => {
+    setSourcePositions(prev => ({ ...prev, [id]: position }));
+  };
+
+  const updateAccountPosition = (id: string, position: Position) => {
+    setAccountPositions(prev => ({ ...prev, [id]: position }));
+  };
 
   if (dimensions.width === 0 || dimensions.height === 0) {
     return (
@@ -86,44 +136,43 @@ function App() {
       <h1 className="title">MoneyTrax</h1>
       <div className="subtitle">Watch your money flow in real-time</div>
       
-      {incomeSourcesIndexed.map((source, index) => (
-        <Source
-          key={source.id}
-          source={source}
-          position={getSourcePosition(index, 'income')}
-        />
-      ))}
+      {sources.map((source) => {
+        const position = sourcePositions[source.id];
+        if (!position) return null;
+        
+        return (
+          <Source
+            key={source.id}
+            source={source}
+            position={position}
+            onPositionChange={(newPos) => updateSourcePosition(source.id, newPos)}
+          />
+        );
+      })}
 
-      {expenseSourcesIndexed.map((source, index) => (
-        <Source
-          key={source.id}
-          source={source}
-          position={getSourcePosition(index, 'expense')}
-        />
-      ))}
-
-      {accounts.map((account, index) => (
-        <Account
-          key={account.id}
-          account={account}
-          position={getAccountPosition(index)}
-        />
-      ))}
+      {accounts.map((account) => {
+        const position = accountPositions[account.id];
+        if (!position) return null;
+        
+        return (
+          <Account
+            key={account.id}
+            account={account}
+            position={position}
+            onPositionChange={(newPos) => updateAccountPosition(account.id, newPos)}
+          />
+        );
+      })}
 
       {streams.map((stream) => {
         const source = sources.find(s => s.id === stream.sourceId);
         const account = accounts.find(a => a.id === stream.accountId);
         if (!source || !account) return null;
 
-        const sourceIndex = source.type === 'income' 
-          ? incomeSourcesIndexed.findIndex(s => s.id === source.id)
-          : expenseSourcesIndexed.findIndex(s => s.id === source.id);
-        
-        const accountIndex = accounts.findIndex(a => a.id === account.id);
-        
-        const sourcePos = getSourcePosition(sourceIndex, source.type);
-        const accountPos = getAccountPosition(accountIndex);
-        
+        const sourcePos = sourcePositions[source.id];
+        const accountPos = accountPositions[account.id];
+        if (!sourcePos || !accountPos) return null;
+
         // For income: flow from source to account
         // For expense: flow from account to source (reversed)
         const fromPos = source.type === 'income' ? sourcePos : accountPos;
@@ -136,7 +185,6 @@ function App() {
             to={toPos}
             color={source.type === 'income' ? '#4ade80' : '#f87171'}
             active={stream.active}
-            amount={stream.amount}
           />
         );
       })}
