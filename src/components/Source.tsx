@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import type { Source as SourceType } from '../types';
 
 interface SourceProps {
@@ -13,11 +13,18 @@ export const Source: React.FC<SourceProps> = ({ source, position, onPositionChan
   const elementRef = useRef<HTMLDivElement>(null);
   
   const color = source.type === 'income' ? '#4ade80' : '#f87171';
+  const nodeRadius = 40;
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const clamp = (value: number, min: number, max: number) => {
+    const upperBound = Math.max(min, max);
+    return Math.min(Math.max(value, min), upperBound);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const rect = elementRef.current?.getBoundingClientRect();
     if (rect) {
+      e.currentTarget.setPointerCapture(e.pointerId);
       setDragOffset({
         x: e.clientX - position.x,
         y: e.clientY - position.y,
@@ -26,28 +33,22 @@ export const Source: React.FC<SourceProps> = ({ source, position, onPositionChan
     }
   };
 
-  useEffect(() => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDragging) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      onPositionChange({
-        x: e.clientX - dragOffset.x,
-        y: e.clientY - dragOffset.y,
-      });
-    };
+    onPositionChange({
+      x: clamp(e.clientX - dragOffset.x, nodeRadius, window.innerWidth - nodeRadius),
+      y: clamp(e.clientY - dragOffset.y, nodeRadius, window.innerHeight - nodeRadius),
+    });
+  };
 
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
+  const handlePointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, dragOffset, onPositionChange]);
+    setIsDragging(false);
+  };
   
   return (
     <div
@@ -60,8 +61,12 @@ export const Source: React.FC<SourceProps> = ({ source, position, onPositionChan
         transform: 'translate(-50%, -50%)',
         cursor: isDragging ? 'grabbing' : 'grab',
         zIndex: isDragging ? 1000 : 2,
+        touchAction: 'none',
       }}
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
     >
       <div
         className="source-circle"
