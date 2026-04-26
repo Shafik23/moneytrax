@@ -11,10 +11,16 @@ export interface StreamPath {
   to: Point;
   color: string;
   active: boolean;
+  amount: number;
+  focused: boolean;
+  dimmed: boolean;
 }
 
 interface AnimatedStreamProps {
   paths: StreamPath[];
+  selectedPathId?: string;
+  timeScale: number;
+  onPathSelect: (id: string) => void;
 }
 
 interface FlowLane {
@@ -96,6 +102,24 @@ const getPointOnCurve = (curve: Curve, progress: number) => {
   };
 };
 
+const getSegmentDistance = (point: Point, start: Point, end: Point) => {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (lengthSquared === 0) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+
+  const progress = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+  const closest = {
+    x: start.x + progress * dx,
+    y: start.y + progress * dy,
+  };
+
+  return Math.hypot(point.x - closest.x, point.y - closest.y);
+};
+
 const drawCurve = (ctx: CanvasRenderingContext2D, curve: Curve, offset: number) => {
   ctx.beginPath();
 
@@ -122,6 +146,7 @@ const drawFlowSegment = (
   length: number,
   offset: number,
   width: number,
+  opacity: number,
 ) => {
   const steps = 10;
 
@@ -134,7 +159,7 @@ const drawFlowSegment = (
     const start = getPointOnCurve(curve, segmentStart);
     const end = getPointOnCurve(curve, segmentEnd);
 
-    ctx.strokeStyle = rgba(0.7 * fade * fade);
+    ctx.strokeStyle = rgba(opacity * 0.7 * fade * fade);
     ctx.lineWidth = width * (0.4 + fade);
     ctx.beginPath();
     ctx.moveTo(start.x + curve.perpX * offset, start.y + curve.perpY * offset);
@@ -143,15 +168,24 @@ const drawFlowSegment = (
   }
 };
 
-export const AnimatedStream: React.FC<AnimatedStreamProps> = ({ paths }) => {
+export const AnimatedStream: React.FC<AnimatedStreamProps> = ({
+  paths,
+  selectedPathId,
+  timeScale,
+  onPathSelect,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | undefined>(undefined);
   const pathsRef = useRef<StreamPath[]>(paths);
+  const selectedPathIdRef = useRef<string | undefined>(selectedPathId);
+  const timeScaleRef = useRef(timeScale);
   const lastFrameRef = useRef<number>(0);
 
   useEffect(() => {
     pathsRef.current = paths;
-  }, [paths]);
+    selectedPathIdRef.current = selectedPathId;
+    timeScaleRef.current = timeScale;
+  }, [paths, selectedPathId, timeScale]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -167,34 +201,39 @@ export const AnimatedStream: React.FC<AnimatedStreamProps> = ({ paths }) => {
       ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     };
 
-    const drawPath = (path: StreamPath, timestamp: number) => {
+    const drawPath = (path: StreamPath, timestamp: number, maxAmount: number) => {
       if (!path.active) return;
 
       const curve = getCurve(path.from, path.to);
       if (!curve) return;
 
       const rgba = getColor(path.color);
+      const amountRatio = Math.abs(path.amount) / maxAmount;
+      const baseWidth = Math.max(2, 16 * amountRatio);
+      const opacity = path.dimmed ? 0.16 : path.focused ? 1 : 0.74;
+      const shadow = path.focused || selectedPathIdRef.current === path.id ? 13 : 6;
       const gradient = ctx.createLinearGradient(path.from.x, path.from.y, path.to.x, path.to.y);
-      gradient.addColorStop(0, rgba(0.03));
-      gradient.addColorStop(0.35, rgba(0.16));
-      gradient.addColorStop(0.75, rgba(0.2));
-      gradient.addColorStop(1, rgba(0.04));
+      gradient.addColorStop(0, rgba(0.02 * opacity));
+      gradient.addColorStop(0.35, rgba(0.16 * opacity));
+      gradient.addColorStop(0.75, rgba(0.24 * opacity));
+      gradient.addColorStop(1, rgba(0.04 * opacity));
 
       ctx.strokeStyle = gradient;
-      ctx.lineWidth = 9;
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = rgba(0.24);
+      ctx.lineWidth = baseWidth;
+      ctx.shadowBlur = shadow;
+      ctx.shadowColor = rgba(0.24 * opacity);
       drawCurve(ctx, curve, 0);
 
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = rgba(0.18);
-      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = rgba(0.2 * opacity);
+      ctx.lineWidth = Math.max(1.6, baseWidth * 0.18);
       drawCurve(ctx, curve, 0);
 
       lanes.forEach((lane) => {
         for (let i = 0; i < 2; i++) {
-          const progress = (timestamp * lane.speed + lane.phase + i / 2) % 1;
-          const pulseLength = Math.min(0.2, Math.max(0.11, 85 / curve.distance));
+          const speed = lane.speed * timeScaleRef.current;
+          const progress = (timestamp * speed + lane.phase + i / 2) % 1;
+          const pulseLength = Math.min(0.22, Math.max(0.11, 90 / curve.distance));
 
           drawFlowSegment(
             ctx,
@@ -203,7 +242,8 @@ export const AnimatedStream: React.FC<AnimatedStreamProps> = ({ paths }) => {
             progress,
             pulseLength,
             lane.offset,
-            lane.width,
+            lane.width + baseWidth * 0.12,
+            opacity,
           );
         }
       });
@@ -220,7 +260,8 @@ export const AnimatedStream: React.FC<AnimatedStreamProps> = ({ paths }) => {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      pathsRef.current.forEach((path) => drawPath(path, timestamp));
+      const maxAmount = Math.max(...pathsRef.current.map((path) => Math.abs(path.amount)), 1);
+      pathsRef.current.forEach((path) => drawPath(path, timestamp, maxAmount));
       ctx.shadowBlur = 0;
       animationRef.current = requestAnimationFrame(animate);
     };
@@ -238,16 +279,50 @@ export const AnimatedStream: React.FC<AnimatedStreamProps> = ({ paths }) => {
     };
   }, []);
 
+  const handleClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const hitPoint = { x: event.clientX, y: event.clientY };
+    const maxAmount = Math.max(...pathsRef.current.map((path) => Math.abs(path.amount)), 1);
+    let bestMatchId: string | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    pathsRef.current.forEach((path) => {
+      if (!path.active) return;
+
+      const curve = getCurve(path.from, path.to);
+      if (!curve) return;
+
+      const amountRatio = Math.abs(path.amount) / maxAmount;
+      const hitWidth = 10 + amountRatio * 18;
+
+      for (let i = 0; i < 28; i++) {
+        const start = getPointOnCurve(curve, i / 28);
+        const end = getPointOnCurve(curve, (i + 1) / 28);
+        const distance = getSegmentDistance(hitPoint, start, end);
+
+        if (distance <= hitWidth && distance < bestDistance) {
+          bestMatchId = path.id;
+          bestDistance = distance;
+        }
+      }
+    });
+
+    if (bestMatchId) {
+      event.stopPropagation();
+      onPathSelect(bestMatchId);
+    }
+  };
+
   return (
     <canvas
       ref={canvasRef}
+      onClick={handleClick}
       style={{
         position: 'absolute',
         top: 0,
         left: 0,
         width: '100vw',
         height: '100vh',
-        pointerEvents: 'none',
+        pointerEvents: 'auto',
         zIndex: 1,
       }}
     />
