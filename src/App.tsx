@@ -517,16 +517,16 @@ function App() {
         return (
           <div
             key={`goal-${account.id}`}
-            className="goal-orbit"
+            className="goal-halo"
             style={{
               left: position.x,
               top: position.y,
               '--goal-progress': `${progress * 360}deg`,
               '--account-color': account.color ?? '#3b82f6',
             } as React.CSSProperties}
-            aria-hidden="true"
+            aria-label={`${account.name} goal progress ${Math.round(progress * 100)}%`}
           >
-            <span>{Math.round(progress * 100)}%</span>
+            <span>Goal {Math.round(progress * 100)}%</span>
           </div>
         );
       })}
