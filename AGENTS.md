@@ -2,19 +2,19 @@
 
 ## Project Structure & Module Organization
 
-This repository contains a single React + TypeScript Vite app in `moneytrax-app/`.
+This repository contains a single React + TypeScript Vite app at the repository root.
 
-- `moneytrax-app/src/` holds application source.
-- `moneytrax-app/src/components/` contains reusable React components such as `Source`, `Account`, and `AnimatedStream`.
-- `moneytrax-app/src/types/` contains shared TypeScript types.
-- `moneytrax-app/src/assets/` and `moneytrax-app/public/` hold static assets.
-- Build and tool configuration live in `moneytrax-app/package.json`, `vite.config.ts`, `tsconfig*.json`, and `eslint.config.js`.
+- `src/` holds application source.
+- `src/components/` contains reusable React components such as `Source`, `Account`, and `AnimatedStream`.
+- `src/types/` contains shared TypeScript types.
+- `src/assets/` and `public/` hold static assets.
+- Build and tool configuration live in `package.json`, `vite.config.ts`, `tsconfig*.json`, and `eslint.config.js`.
 
 There is currently no dedicated test directory.
 
 ## Build, Test, and Development Commands
 
-Run commands from `moneytrax-app/`:
+Run commands from the repository root:
 
 ```bash
 npm ci
